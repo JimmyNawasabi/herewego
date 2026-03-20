@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shadows & Gold: The RACK Protocol</title>
+    <style>
+        :root {
+            --velvet: #4a0e0e;
+            --gold: #d4af37;
+            --deep-grey: #2c2c2c;
+            --soft-white: #f5f5f5;
+            --accent-purple: #301934;
+        }
+
+        body {
+            background-color: var(--soft-white);
+            color: var(--deep-grey);
+            font-family: 'Georgia', serif;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        #game-container {
+            width: 90%;
+            max-width: 800px;
+            background: white;
+            padding: 30px;
+            margin-top: 50px;
+            border-top: 5px solid var(--gold);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            border-radius: 8px;
+        }
+
+        h1, h2 { color: var(--velvet); text-transform: uppercase; letter-spacing: 2px; text-align: center; }
+
+        .setup-section { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+
+        .btn {
+            background: var(--velvet);
+            color: var(--gold);
+            border: 2px solid var(--gold);
+            padding: 10px 20px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: 0.3s;
+            margin: 5px;
+        }
+
+        .btn:hover { background: var(--gold); color: var(--velvet); }
+
+        .card-indicator {
+            display: inline-block;
+            width: 50px;
+            height: 70px;
+            border-radius: 5px;
+            margin: 10px;
+            text-align: center;
+            line-height: 70px;
+            font-weight: bold;
+            border: 2px solid #000;
+        }
+
+        .yellow-card { background: #ffd700; color: black; }
+        .red-card { background: #ff4d4d; color: white; }
+
+        .hidden { display: none; }
+
+        .task-display {
+            background: var(--accent-purple);
+            color: var(--gold);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            font-size: 1.2rem;
+            line-height: 1.6;
+            min-height: 150px;
+        }
+
+        #timer { font-size: 2rem; color: var(--velvet); font-weight: bold; }
+        
+        .inventory-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <!-- SETUP SCREEN -->
+    <div id="setup-screen">
+        <h1>Shadows & Gold</h1>
+        <div class="setup-section">
+            <h3>Participants</h3>
+            <input type="text" id="p1-name" placeholder="Player 1 Name">
+            <select id="p1-gender"><option value="Male">Male</option><option value="Female">Female</option><option value="NB">NB</option></select>
+            <br><br>
+            <input type="text" id="p2-name" placeholder="Player 2 Name">
+            <select id="p2-gender"><option value="Male">Male</option><option value="Female">Female</option><option value="NB">NB</option></select>
+        </div>
+
+        <div class="setup-section">
+            <h3>Game Length</h3>
+            <input type="number" id="game-rounds" value="20"> Rounds
+        </div>
+
+        <div class="setup-section">
+            <h3>The Vault (Inventory)</h3>
+            <div id="inventory-manager" class="inventory-list"></div>
+            <input type="text" id="new-item-name" placeholder="Add custom item...">
+            <select id="new-item-cat">
+                <option value="Bound">Bound (Restraints)</option>
+                <option value="Sting">The Sting (Impact)</option>
+                <option value="Silence">Silence (Gags)</option>
+            </select>
+            <button onclick="vault.addItem()">Add to Vault</button>
+        </div>
+
+        <button class="btn" onclick="gameEngine.initGame()">BEGIN THE RITE</button>
+    </div>
+
+    <!-- PLAY SCREEN -->
+    <div id="play-screen" class="hidden">
+        <div style="display: flex; justify-content: space-between;">
+            <div id="p1-stats"></div>
+            <div id="p2-stats"></div>
+        </div>
+        <hr>
+        <h2 id="round-indicator">Round 1</h2>
+        <div id="role-announcement"></div>
+        
+        <div id="card-area"></div>
+
+        <div id="category-toggles">
+            <!-- Master selects categories here -->
+        </div>
+
+        <button id="draw-task-btn" class="btn" onclick="gameEngine.generateTask()">DRAW TASK</button>
+
+        <div id="task-area" class="hidden">
+            <div class="task-display" id="task-text"></div>
+            <div id="timer">00:00</div>
+            <button class="btn" onclick="gameEngine.startTimer()">START TIMER</button>
+            <button class="btn" style="background: green;" onclick="gameEngine.resolveTask(true)">SUCCESS</button>
+            <button class="btn" style="background: red;" onclick="gameEngine.resolveTask(false)">FAILURE</button>
+            <button class="btn" onclick="gameEngine.vetoTask()">VETO (Permanent Remove)</button>
+        </div>
+
+        <button class="btn" style="background: black; color: white;" onclick="gameEngine.safeWord()">SAFE WORD</button>
+    </div>
+
+    <!-- GRAND FINALE -->
+    <div id="finale-screen" class="hidden">
+        <h1>The Grand Prize</h1>
+        <div id="winner-announcement"></div>
+        <div id="finale-task" class="task-display"></div>
+    </div>
+</div>
+
+<script>
+/* 
+   DATA REPOSITORY 
+   In a production environment, this would be 50+ entries per category. 
+   Included here are samples to demonstrate the logic.
+*/
+const MASTER_TASKS = {
+    "Shibari": [
+        { id: 1, text: "Using the [Rope] from the Bound vault, perform a detailed chest harness on the submissive. Ensure the rope passes under the armpits and crosses the sternum. Once secure, tether the harness to the bedpost and leave them to struggle for the duration.", time: 420 },
+        { id: 2, text: "Tie the submissive's ankles together tightly using a square knot. Run the rope up to a waist cinch, then pull the heels toward the glutes in a tight frogtie. Apply [Blindfold] and leave them in the center of the room.", time: 600 }
+    ],
+    "Tease, deny and edge": [
+        { id: 3, text: "The submissive must be brought to the absolute brink of climax using [Vibrator]. The Master must stop all stimulation the moment the submissive begs. Repeat this 3 times. No climax allowed.", time: 480 }
+    ],
+    "Silence": [
+        { id: 4, text: "Place the [Ball Gag] into the submissive's mouth and buckle it to the tightest comfortable notch. The submissive must then perform 50 laps of the room crawling on all fours without making a sound.", time: 300 }
+    ]
+    // ... logic would scale to 50 tasks per 8 categories
+};
+
+const GRAND_PRIZES = [
+    "The Ultimate Devotion: The winner takes the role of Master. The submissive is to be fully bound in a spiderweb of rope, blindfolded, and gagged. The Master will then spend the next hour exploring every inch of the submissive's body with various sensations, ending in a permitted climax for the submissive only when the Master deems them worthy.",
+    "The Throne's Reward: The winner chooses the role. The submissive must serve the Master's every sexual whim for 60 minutes. This includes oral service, penetration, and any items from the vault. The Master may climax as many times as possible."
+];
+
+const vault = {
+    items: JSON.parse(localStorage.getItem('vault_items')) || {
+        "Bound": ["Silk Rope", "Leather Cuffs", "Zip Ties"],
+        "Sting": ["Leather Crop", "Flogger", "Paddle"],
+        "Silence": ["Ball Gag", "Spider Gag", "Medical Tape"],
+        "Shadows": ["Silk Scarf", "Blackout Mask"],
+        "Instruments": ["Vibrator", "Glass Wand", "Dildo"]
+    },
+    addItem: function() {
+        const name = document.getElementById('new-item-name').value;
+        const cat = document.getElementById('new-item-cat').value;
+        if(name) {
+            this.items[cat].push(name);
+            this.render();
+            this.save();
+        }
+    },
+    save: function() { localStorage.setItem('vault_items', JSON.stringify(this.items)); },
+    render: function() {
+        const container = document.getElementById('inventory-manager');
+        container.innerHTML = '';
+        for(let cat in this.items) {
+            let div = document.createElement('div');
+            div.innerHTML = `<strong>${cat}</strong><br>` + this.items[cat].map(i => `<small>${i}</small>`).join(', ');
+            container.appendChild(div);
+        }
+    }
+};
+
+const gameEngine = {
+    p1: { name: '', score: 0, card: null, role: '' },
+    p2: { name: '', score: 0, card: null, role: '' },
+    roundsTotal: 20,
+    currentRound: 1,
+    activeTask: null,
+    timerInterval: null,
+
+    initGame: function() {
+        this.p1.name = document.getElementById('p1-name').value || "Player 1";
+        this.p2.name = document.getElementById('p2-name').value || "Player 2";
+        this.roundsTotal = parseInt(document.getElementById('game-rounds').value);
+        
+        // Randomize Cards
+        const cards = ['Yellow', 'Red'];
+        if(Math.random() > 0.5) this.p1.card = cards.pop();
+        if(Math.random() > 0.5) this.p2.card = cards.length ? cards.pop() : null;
+
+        // Randomize Roles
+        this.assignRoles(Math.random() > 0.5);
+
+        document.getElementById('setup-screen').classList.add('hidden');
+        document.getElementById('play-screen').classList.remove('hidden');
+        this.updateUI();
+    },
+
+    assignRoles: function(p1IsMaster) {
+        if(p1IsMaster) {
+            this.p1.role = 'Master';
+            this.p2.role = 'Submissive';
+        } else {
+            this.p1.role = 'Submissive';
+            this.p2.role = 'Master';
+        }
+    },
+
+    updateUI: function() {
+        document.getElementById('p1-stats').innerHTML = `${this.p1.name} (${this.p1.role})<br>Score: ${this.p1.score} ${this.p1.card ? `<div class="card-indicator ${this.p1.card.toLowerCase()}-card">${this.p1.card<a href="" class="citation-link" target="_blank" style="vertical-align: super; font-size: 0.8em; margin-left: 3px;">[0]</a>}</div>` : ''}`;
+        document.getElementById('p2-stats').innerHTML = `${this.p2.name} (${this.p2.role})<br>Score: ${this.p2.score} ${this.p2.card ? `<div class="card-indicator ${this.p2.card.toLowerCase()}-card">${this.p2.card<a href="" class="citation-link" target="_blank" style="vertical-align: super; font-size: 0.8em; margin-left: 3px;">[0]</a>}</div>` : ''}`;
+        document.getElementById('round-indicator').innerText = `Round ${this.currentRound} of ${this.roundsTotal}`;
+    },
+
+    generateTask: function() {
+        // Logic to pick from available categories
+        const cats = Object.keys(MASTER_TASKS);
+        const randomCat = cats[Math.floor(Math.random() * cats.length)];
+        const tasks = MASTER_TASKS[randomCat];
+        this.activeTask = tasks[Math.floor(Math.random() * tasks.length)];
+        
+        document.getElementById('task-text').innerText = this.activeTask.text;
+        document.getElementById('task-area').classList.remove('hidden');
+        document.getElementById('draw-task-btn').classList.add('hidden');
+        this.setTime(this.activeTask.time);
+    },
+
+    setTime: function(seconds) {
+        let m = Math.floor(seconds / 60);
+        let s = seconds % 60;
+        document.getElementById('timer').innerText = `${m}:${s < 10 ? '0'+s : s}`;
+    },
+
+    startTimer: function() {
+        let time = this.activeTask.time;
+        this.timerInterval = setInterval(() => {
+            time--;
+            this.setTime(time);
+            if(time <= 0) {
+                clearInterval(this.timerInterval);
+                alert("Time is up!");
+            }
+        }, 1000);
+    },
+
+    resolveTask: function(success) {
+        clearInterval(this.timerInterval);
+        const sub = this.p1.role === 'Submissive' ? this.p1 : this.p2;
+        
+        if(success) {
+            sub.score += 1;
+            this.assignRoles(this.p1.role === 'Submissive'); // Swap
+        } else {
+            sub.score -= 1;
+            // Stay as submissive
+        }
+
+        this.currentRound++;
+        if(this.currentRound > this.roundsTotal) {
+            this.endGame();
+        } else {
+            this.updateUI();
+            document.getElementById('task-area').classList.add('hidden');
+            document.getElementById('draw-task-btn').classList.remove('hidden');
+        }
+    },
+
+    safeWord: function() {
+        const sub = this.p1.role === 'Submissive' ? this.p1 : this.p2;
+        sub.score -= 5;
+        alert("Safe word used. 5 points deducted. Ritual resets.");
+        this.resolveTask(false);
+    },
+
+    endGame: function() {
+        document.getElementById('play-screen').classList.add('hidden');
+        document.getElementById('finale-screen').classList.remove('hidden');
+        const winner = this.p1.score > this.p2.score ? this.p1 : this.p2;
+        document.getElementById('winner-announcement').innerText = `${winner.name} is the Ultimate Winner!`;
+        document.getElementById('finale-task').innerText = GRAND_PRIZES[Math.floor(Math.random() * GRAND_PRIZES.length)];
+    }
+};
+
+vault.render();
+</script>
+</body>
+</html>
